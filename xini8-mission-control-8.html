@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XINI8 Mission Control</title>
+<style>
+  /* ===== XINI8 Design Tokens ===== */
+  :root {
+    --bg: #000000;
+    --panel: #05221E;
+    --card: #014330;
+    --border: #055D51;
+    --text: #FFFFFF;
+    --text-secondary: #9AA5B1;
+    --accent-purple: #20946E;
+    --accent-blue: #055D51;
+    --success: #22C55E;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background:
+      radial-gradient(circle at 12% 8%, rgba(32,148,110,0.10), transparent 35%),
+      radial-gradient(circle at 90% 95%, rgba(5,93,81,0.12), transparent 40%),
+      var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ===== Glass card ===== */
+  .glass {
+    background: linear-gradient(160deg, rgba(1,67,48,0.55), rgba(5,34,30,0.55));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    backdrop-filter: blur(6px);
+  }
+
+  /* ===== Page tagline: bottom-right corner, unique per page ===== */
+  .page-tagline {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--accent-purple);
+    z-index: 50;
+    text-align: right;
+  }
+
+  /* ===== Layout: sidebar / main / detail panel (legacy, used inside Mission Dashboard module) ===== */
+  .mission-module { display: grid; grid-template-columns: 1fr 320px; gap: 20px; height: 100%; }
+  .mission-main { overflow-y: auto; display: flex; flex-direction: column; gap: 20px; padding-right: 4px; }
+
+  .main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .main-header h1 { font-size: 20px; font-weight: 600; }
+  .main-header p { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+  .search {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 14px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+  }
+  .search:focus { border-color: var(--accent-purple); }
+  .search::placeholder { color: var(--text-secondary); }
+
+  .mission-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+
+  .mission-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .mission-card:hover { transform: translateY(-2px); border-color: var(--accent-purple); }
+  .mission-card.selected { border-color: var(--accent-purple); background: rgba(32,148,110,0.08); }
+
+  .mission-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+
+  .mission-title { font-size: 14px; font-weight: 600; }
+  .mission-sub { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+
+  .status-pill {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .status-live { background: rgba(34,197,94,0.15); color: var(--success); }
+  .status-render { background: rgba(59,130,246,0.15); color: #3B82F6; }
+  .status-review { background: rgba(245,158,11,0.15); color: var(--warning); }
+
+  .progress-track {
+    height: 4px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 12px;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-purple), var(--accent-blue));
+    border-radius: 4px;
+    transition: width 0.6s ease;
+  }
+
+  .detail {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 18px;
+    overflow-y: auto;
+  }
+
+  .detail h2 { font-size: 16px; margin-bottom: 4px; }
+  .detail .detail-sub { font-size: 12px; color: var(--text-secondary); margin-bottom: 20px; }
+
+  .telemetry-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .telemetry-row span:first-child { color: var(--text-secondary); }
+  .telemetry-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .agent-pulse {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 20px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .pulse-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    animation: pulse 1.5s infinite ease-in-out;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+    50% { opacity: 0.5; }
+  }
+
+  .empty-state {
+    color: var(--text-secondary);
+    font-size: 13px;
+    text-align: center;
+    margin-top: 60px;
+  }
+
+  /* ===== LOGIN SCREEN ===== */
+  .login-screen {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: url('xini8mission.jpeg') top left/10% no-repeat, var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .login-screen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1;
+  }
+
+  .login-box {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px 36px;
+    width: 320px;
+    text-align: center;
+    box-shadow: 0 0 40px rgba(32, 148, 110, 0.35);
+    z-index: 2;
+  }
+
+  .login-box h2 {
+    font-size: 20px;
+    margin-bottom: 24px;
+    color: var(--text);
+  }
+
+  .login-box p.sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: -16px;
+    margin-bottom: 20px;
+  }
+
+  .login-box input,
+  .login-box select {
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    margin-bottom: 14px;
+  }
+
+  .login-box input:focus,
+  .login-box select:focus {
+    border-color: var(--accent-purple);
+  }
+
+  .login-box input::placeholder {
+    color: var(--text-secondary);
+  }
+
+  .login-box label {
+    display: block;
+    text-align: left;
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin: 0 0 6px;
+  }
+
+  .avatar-picker {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .avatar-option {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700;
+    cursor: pointer;
+    border: 2px solid var(--border);
+    background: var(--card);
+    transition: all 0.15s ease;
+  }
+  .avatar-option.selected {
+    border-color: var(--accent-purple);
+    box-shadow: 0 0 0 3px rgba(32,148,110,0.25);
+  }
+
+  .login-box button {
+    width: 100%;
+    background: var(--accent-purple);
+    border: none;
+    border-radius: 8px;
+    padding: 12px;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+  }
+
+  .login-box button:hover {
+    opacity: 0.85;
+  }
+
+  .step-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+  .step-dots span {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+  .step-dots span.active {
+    background: var(--accent-purple);
+    box-shadow: 0 0 8px var(--accent-purple);
+  }
+
+  /* ===== Workspace select screen: infinity (moved to profile screen) & crown (workspace screen) ===== */
+  .infinity-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 18px;
+  }
+  .infinity-wrap.infinity-bottom {
+    position: fixed;
+    bottom: 15px;
+    left: 0;
+    right: 0;
+    margin-bottom: 0;
+    z-index: 2;
+  }
+  .infinity-svg .infinity-base {
+    fill: none;
+    stroke: var(--border);
+    stroke-width: 3;
+    stroke-linecap: round;
+    opacity: 0.5;
+  }
+  .infinity-svg .infinity-sweep {
+    fill: none;
+    stroke: url(#infinityLight);
+    stroke-width: 4;
+    stroke-linecap: round;
+  }
+
+  .crown-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 18px;
+  }
+  .crown-wrap svg path,
+  .crown-wrap svg circle { fill: var(--accent-purple); }
+  .crown-wrap svg { filter: drop-shadow(0 0 8px rgba(32,148,110,0.8)); }
+  .crown-wheel svg { animation: crownWheel 3s linear infinite; transform-origin: center; }
+  @keyframes crownWheel { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  .workspace-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+  }
+  .workspace-option:hover { border-color: var(--accent-purple); }
+  .workspace-option.selected {
+    border-color: var(--accent-purple);
+    background: rgba(32,148,110,0.12);
+    box-shadow: 0 0 0 2px rgba(32,148,110,0.25);
+  }
+  .workspace-option .ws-icon {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg,#20946E,#055D51);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+  .workspace-option .ws-name { font-size: 13px; font-weight: 600; }
+  .workspace-option .ws-sub { font-size: 11px; color: var(--text-secondary); }
+
+  /* ===== Icon-based avatar options ===== */
+  .avatar-option.icon-avatar {
+    font-size: 20px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .avatar-option.icon-avatar.selected,
+  .avatar-option.icon-avatar.pop {
+    animation: avatarPop 0.35s ease;
+  }
+  @keyframes avatarPop {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
+
+  /* ===== Role select pop animation ===== */
+  select#userRole.role-pop {
+    animation: rolePop 0.3s ease;
+  }
+  @keyframes rolePop {
+    0%   { box-shadow: 0 0 0 0 rgba(32,148,110,0.6); }
+    100% { box-shadow: 0 0 0 8px rgba(32,148,110,0); }
+  }
+
+  /* ===== Footer ECG line (login screen only) ===== */
+  .ecg-line {
+    position: absolute;
+    bottom: 15px;
+    left: 0;
+    width: 100%;
+    height: 30px;
+    opacity: 0.6;
+    z-index: 2;
+  }
+
+  /* ================================================================
+     ===================  OS DASHBOARD (main app)  ==================
+     ================================================================ */
+  .os-app {
+    display: grid;
+    grid-template-columns: 240px 1fr 300px;
+    grid-template-rows: 64px 1fr;
+    grid-template-areas:
+      "topnav topnav topnav"
+      "sidebar content rightpanel";
+    height: 100vh;
+  }
+  .os-app.panel-collapsed { grid-template-columns: 240px 1fr 0px; }
+  .os-app.panel-collapsed .rightpanel { display: none; }
+
+  /* ---- Top nav ---- */
+  .topnav {
+    grid-area: topnav;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(5,34,30,0.5);
+    gap: 16px;
+  }
+  .brand-lockup { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .brand-lockup img { height: 26px; width: auto; }
+  .brand-name { font-size: 14px; font-weight: 700; letter-spacing: 1px; line-height: 1.2; }
+  .brand-name .reg { font-size: 9px; font-weight: 600; letter-spacing: 1.5px; color: var(--accent-purple); display:block; }
+  .brand-crumb { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
+
+  .topnav-search {
+    flex: 1 1 auto;
+    max-width: 420px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .topnav-search input {
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+  }
+  .topnav-search input:focus { border-color: var(--accent-purple); }
+  .topnav-search input::placeholder { color: var(--text-secondary); }
+
+  .topnav-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+  .status-chip {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--text-secondary);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 5px 10px;
+  }
+  .status-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .credits-chip { font-size: 11px; color: var(--text-secondary); }
+  .credits-chip b { color: var(--accent-purple); }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--card); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-secondary); position: relative;
+  }
+  .icon-btn:hover { border-color: var(--accent-purple); color: var(--text); }
+  .icon-btn .badge {
+    position: absolute; top: -4px; right: -4px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--danger); font-size: 8px;
+    display: flex; align-items: center; justify-content: center; font-weight: 700;
+  }
+  .notif-dropdown {
+    display: none;
+    position: absolute;
+    top: 38px;
+    right: 0;
+    width: 260px;
+    padding: 10px 12px;
+    z-index: 20;
+    cursor: default;
+    text-align: left;
+  }
+  .notif-dropdown.open { display: block; }
+
+  .topnav-avatar {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    padding: 4px 8px 4px 4px; border-radius: 20px;
+    border: 1px solid var(--border); background: var(--card);
+  }
+  .topnav-avatar .mini-avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+  .topnav-avatar .tn-name { font-size: 12px; font-weight: 600; line-height:1.1; }
+  .topnav-avatar .tn-role { font-size: 9px; color: var(--text-secondary); }
+
+  /* ---- Sidebar ---- */
+  .os-sidebar {
+    grid-area: sidebar;
+    border-right: 1px solid var(--border);
+    padding: 14px 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .nav-group { margin-bottom: 2px; }
+  .nav-group-label {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    padding: 8px 8px 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .nav-group-label:hover { color: var(--text); }
+  .nav-group-label .chev { font-size: 9px; transition: transform 0.15s ease; }
+  .nav-group.collapsed .chev { transform: rotate(-90deg); }
+  .nav-group.collapsed .nav-items { display: none; }
+  .nav-items { display: flex; flex-direction: column; gap: 1px; }
+  .nav-item {
+    padding: 7px 10px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .nav-item:hover { background: var(--card); color: var(--text); }
+  .nav-item.active {
+    background: rgba(32, 148, 110, 0.15);
+    color: var(--text);
+    border-left: 2px solid var(--accent-purple);
+  }
+
+  /* ---- Content ---- */
+  .os-content {
+    grid-area: content;
+    padding: 18px 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .kpi-card { padding: 14px 16px; }
+  .kpi-card .kpi-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+  .kpi-card .kpi-value { font-size: 20px; font-weight: 700; }
+  .kpi-card .kpi-delta { font-size: 11px; color: var(--success); margin-top: 4px; }
+
+  .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 2px; }
+
+  .status-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .status-card { padding: 14px; text-align: center; }
+  .status-card .sc-value { font-size: 18px; font-weight: 700; }
+  .status-card .sc-label { font-size: 10.5px; color: var(--text-secondary); margin-top: 3px; }
+
+  .agent-table, .data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .agent-table th, .data-table th {
+    text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px;
+    color: var(--text-secondary); padding: 8px 10px; border-bottom: 1px solid var(--border);
+  }
+  .agent-table td, .data-table td { padding: 9px 10px; border-bottom: 1px solid rgba(5,93,81,0.4); }
+  .agent-table tr:last-child td, .data-table tr:last-child td { border-bottom: none; }
+  .mini-bar-track { width: 60px; height: 4px; background: var(--border); border-radius: 3px; overflow: hidden; display:inline-block; vertical-align:middle; }
+  .mini-bar-fill { height: 100%; background: var(--accent-purple); }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .pad { padding: 16px; }
+
+  .quick-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .qa-btn {
+    padding: 12px 8px; text-align: center; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s ease; color: var(--text);
+  }
+  .qa-btn:hover { border-color: var(--accent-purple); background: rgba(32,148,110,0.1); }
+
+  .module-stub { padding: 40px 20px; text-align: center; }
+  .module-stub h2 { font-size: 16px; margin-bottom: 6px; }
+  .module-stub p { font-size: 12.5px; color: var(--text-secondary); }
+
+  /* ---- Right panel ---- */
+  .rightpanel {
+    grid-area: rightpanel;
+    border-left: 1px solid var(--border);
+    padding: 16px 14px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .rp-block { padding: 12px 14px; }
+  .rp-block h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); margin-bottom: 10px; }
+  .rp-notif { display: flex; gap: 8px; font-size: 12px; padding: 6px 0; border-bottom: 1px solid rgba(5,93,81,0.4); }
+  .rp-notif:last-child { border-bottom: none; }
+  .rp-notif .t { color: var(--text-secondary); font-size: 10.5px; flex-shrink:0; width:38px; }
+  .rp-chat-box { display:flex; gap:6px; margin-top:8px; }
+  .rp-chat-box input { flex:1; background: var(--card); border:1px solid var(--border); border-radius:8px; padding:7px 10px; color:var(--text); font-size:12px; outline:none; }
+  .rp-chat-box button { background: var(--accent-purple); border:none; border-radius:8px; padding:0 12px; color:white; font-size:12px; cursor:pointer; }
+  .health-ring {
+    width: 70px; height: 70px; border-radius: 50%;
+    border: 5px solid var(--accent-purple);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; margin: 0 auto;
+    box-shadow: 0 0 16px rgba(32,148,110,0.4);
+  }
+  .toggle-panel-btn {
+    position: absolute; top: 14px; right: 8px; z-index: 2;
+  }
+
+  /* ===== My Profile (in-app view) ===== */
+  .profile-view {
+    grid-column: 2 / 4; grid-row: 2 / 3;
+    padding: 24px 28px;
+    overflow-y: auto;
+    display: none;
+  }
+  .profile-view.active { display: block; }
+  .os-app.showing-profile .os-content,
+  .os-app.showing-profile .rightpanel { display: none; }
+
+  .profile-back {
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    margin-bottom: 16px;
+    display: inline-block;
+  }
+  .profile-back:hover { color: var(--text); }
+
+  .profile-banner {
+    position: relative;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background:
+      radial-gradient(circle at 15% 20%, rgba(32,148,110,0.35), transparent 45%),
+      radial-gradient(circle at 85% 80%, rgba(5,93,81,0.5), transparent 50%),
+      var(--panel);
+    padding: 28px 28px 24px;
+    display: flex;
+    align-items: flex-end;
+    gap: 20px;
+  }
+  .avatar-xl {
+    width: 76px; height: 76px;
+    border-radius: 18px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; font-weight: 700;
+    border: 3px solid var(--bg);
+    flex-shrink: 0;
+  }
+  .profile-id h1 { font-size: 20px; font-weight: 600; }
+  .profile-id p { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+  .profile-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin: 22px 0;
+  }
+  .profile-tab {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .profile-tab:hover { color: var(--text); }
+  .profile-tab.active { color: var(--text); border-bottom-color: var(--accent-purple); }
+
+  .profile-panel { display: none; max-width: 460px; }
+  .profile-panel.active { display: block; }
+
+  .form-row { margin-bottom: 16px; }
+  .form-row label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 6px;
+  }
+  .form-row input, .form-row select {
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+  }
+  .form-row input:focus, .form-row select:focus { border-color: var(--accent-purple); }
+  .form-hint { font-size: 11px; color: var(--text-secondary); margin-top: -10px; margin-bottom: 16px; }
+
+  .save-btn {
+    background: var(--accent-purple);
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .save-btn:hover { opacity: 0.88; }
+  .save-msg {
+    font-size: 12px;
+    color: var(--success);
+    margin-left: 10px;
+    display: none;
+  }
+
+  .profile-screen-bg {
+    background:
+      radial-gradient(circle at 20% 30%, rgba(32,148,110,0.45), transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(5,93,81,0.55), transparent 45%),
+      radial-gradient(circle at 50% 90%, rgba(32,148,110,0.3), transparent 35%),
+      var(--bg);
+  }
+
+  /* ===== Background video layer (workspace select screen) ===== */
+  .bg-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+    opacity: 0.55;
+  }
+
+  @keyframes taglineShow { 0%{opacity:0;} 15%{opacity:1;} 85%{opacity:1;} 100%{opacity:0;} }
+</style>
+</head>
+<body>
+
+<!-- STEP 1: LOGIN SCREEN -->
+<div class="login-screen" id="loginScreen">
+  <video class="bg-video" autoplay muted loop playsinline>
+  <source src="xini8-login-video.mp4" type="video/mp4">
+</video>
+  <div class="login-box">
+    <div class="step-dots">
+      <span class="active"></span><span></span><span></span>
+    </div>
+    <h2>XINI8 Production</h2>
+    <input type="text" id="userName" placeholder="Enter your name">
+    <input type="password" id="userPass" placeholder="Enter password">
+    <button onclick="loginUser()">Login</button>
+  </div>
+  <!-- ECG line only on this screen -->
+  <svg class="ecg-line" viewBox="0 0 1000 40" preserveAspectRatio="none">
+    <polyline points="0,20 100,20 120,5 140,35 160,20 300,20 320,5 340,35 360,20 500,20 520,5 540,35 560,20 700,20 720,5 740,35 760,20 1000,20"
+      fill="none" stroke="var(--accent-purple)" stroke-width="2"
+      stroke-dasharray="1500" stroke-dashoffset="1500">
+      <animate attributeName="stroke-dashoffset" from="1500" to="0" dur="4s" repeatCount="indefinite"/>
+    </polyline>
+  </svg>
+  <div class="page-tagline">Create Without Limits</div>
+</div>
+
+<!-- STEP 2: WORKSPACE SELECTION SCREEN (hidden until login) -->
+<div class="login-screen" id="workspaceScreen" style="display:none; background: url('xini8-workspace-bg.jpg') center/cover no-repeat;">
+  <!-- Background video for this screen only. Replace xini8-bg-video.mp4 with your own file (same name) to swap it.
+       poster="xini8-bg-poster.jpg" shows while the video loads / if it can't play. -->
+  <video class="bg-video" autoplay muted loop playsinline poster="xini8-bg-poster.jpg">
+    <source src="xini8-bg-video.mp4" type="video/mp4">
+  </video>
+  <div class="login-box">
+    <div class="step-dots">
+      <span></span><span class="active"></span><span></span>
+    </div>
+    <!-- Crown only on this screen (green, not gold), spinning like a wheel -->
+    <div class="crown-wrap crown-wheel">
+      <svg width="34" height="28" viewBox="0 0 24 24">
+        <path d="M2 20h20l-2-9-4 4-4-7-4 7-4-4z"/>
+        <circle cx="2" cy="9" r="1.6"/><circle cx="12" cy="6" r="1.6"/><circle cx="22" cy="9" r="1.6"/>
+      </svg>
+    </div>
+    <h2>Select Workspace</h2>
+    <p class="sub">Which workspace do you want to enter?</p>
+
+    <div class="workspace-option selected" onclick="pickWorkspace(this)">
+      <div class="ws-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+        </svg>
+      </div>
+      <div>
+        <div class="ws-name">XINI8 Studios</div>
+        <div class="ws-sub">Main production workspace</div>
+      </div>
+    </div>
+    <div class="workspace-option" onclick="pickWorkspace(this)">
+      <div class="ws-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7l2-3h5l2 3h9v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="ws-name">Personal Sandbox</div>
+        <div class="ws-sub">Practice missions</div>
+      </div>
+    </div>
+
+    <button onclick="enterWorkspace()">Enter Workspace</button>
+  </div>
+  <div class="page-tagline">Empowering Every Vision</div>
+</div>
+
+<!-- STEP 3: PROFILE SETUP SCREEN (hidden until workspace picked) -->
+<div class="login-screen profile-screen-bg" id="profileScreen" style="display:none;">
+  <div class="login-box">
+    <div class="step-dots">
+      <span></span><span></span><span class="active"></span>
+    </div>
+    <h2>Set Up Your Profile</h2>
+    <p class="sub">One last step before Mission Control</p>
+
+    <label>Pick an avatar</label>
+    <div class="avatar-picker" id="avatarPicker">
+      <div class="avatar-option icon-avatar selected" data-color="linear-gradient(135deg,#20946E,#055D51)" data-letter="P" onclick="pickAvatar(this)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+      </div>
+      <div class="avatar-option icon-avatar" data-color="linear-gradient(135deg,#F59E0B,#EF4444)" data-letter="W" onclick="pickAvatar(this)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+      </div>
+      <div class="avatar-option icon-avatar" data-color="linear-gradient(135deg,#3B82F6,#20946E)" data-letter="D" onclick="pickAvatar(this)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+      </div>
+    </div>
+
+    <label>Your role</label>
+    <select id="userRole" onchange="roleChanged(this)">
+      <option>Producer</option>
+      <option>Editor</option>
+      <option>Director</option>
+      <option>Reviewer</option>
+    </select>
+
+    <button onclick="completeProfile()">Enter</button>
+  </div>
+  <div class="infinity-wrap infinity-bottom">
+    <svg class="infinity-svg" width="70" height="36" viewBox="0 0 70 36">
+      <defs>
+        <linearGradient id="infinityLight" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%"  stop-color="var(--accent-purple)" stop-opacity="0"/>
+          <stop offset="45%" stop-color="var(--accent-purple)" stop-opacity="1"/>
+          <stop offset="55%" stop-color="var(--accent-purple)" stop-opacity="1"/>
+          <stop offset="100%" stop-color="var(--accent-purple)" stop-opacity="0"/>
+          <animateTransform attributeName="gradientTransform" type="translate"
+            values="-70 0; 70 0; -70 0" dur="3s" repeatCount="indefinite"/>
+        </linearGradient>
+      </defs>
+      <path class="infinity-base" d="M18,18 C18,8 28,8 35,18 C42,28 52,28 52,18 C52,8 42,8 35,18 C28,28 18,28 18,18 Z"/>
+      <path class="infinity-sweep" d="M18,18 C18,8 28,8 35,18 C42,28 52,28 52,18 C52,8 42,8 35,18 C28,28 18,28 18,18 Z"/>
+    </svg>
+  </div>
+  <div class="page-tagline">Infinite Possibilities Await</div>
+</div>
+
+<!-- STEP 4: MAIN APP / OS DASHBOARD (hidden until profile is set up) -->
+<div class="os-app" id="mainApp" style="display:none;">
+
+  <!-- TOP NAV -->
+  <div class="topnav">
+    <div class="brand-lockup">
+      <div>
+        <div class="brand-name">XINI8 <span class="reg">AI PRODUCTION</span></div>
+        <div class="brand-crumb">Powered by OpenMontage</div>
+      </div>
+    </div>
+    <div class="topnav-search">
+      <input id="globalSearch" placeholder="Search projects, agents, commands..." oninput="globalSearchHandler(this.value)">
+    </div>
+    <div class="topnav-right">
+      <div class="status-chip"><span class="dot"></span> Claude Connected</div>
+      <div class="status-chip"><span class="dot"></span> OpenMontage</div>
+      <div class="credits-chip">Credits <b>84%</b></div>
+      <div class="icon-btn" title="Notifications" onclick="toggleNotifDropdown(event)" style="position:relative;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <span class="badge">4</span>
+        <div class="glass notif-dropdown" id="notifDropdown">
+          <div class="rp-notif"><span class="t">12:43</span><span>Script Analyst Agent started writing Scene 7</span></div>
+          <div class="rp-notif"><span class="t">12:41</span><span>Research Agent completed data analysis</span></div>
+          <div class="rp-notif"><span class="t">12:37</span><span>Outline approved by you</span></div>
+          <div class="rp-notif"><span class="t">12:35</span><span>Visual Research Agent collected 42 assets</span></div>
+        </div>
+      </div>
+      <div class="icon-btn" title="Calendar">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      </div>
+      <div class="topnav-avatar" onclick="showProfile()">
+        <div class="mini-avatar" id="footerAvatar">A</div>
+        <div>
+          <div class="tn-name" id="footerName">—</div>
+          <div class="tn-role" id="footerRole">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="os-sidebar" id="osSidebar"></div>
+
+  <!-- CONTENT -->
+  <div class="os-content" id="osContent"></div>
+
+  <!-- RIGHT UTILITY PANEL -->
+  <div class="rightpanel" id="rightPanel">
+    <div class="glass rp-block">
+      <h3>Live AI Chat</h3>
+      <div style="font-size:12px;color:var(--text-secondary);">Ask your AI Producer anything about this workspace.</div>
+      <div class="rp-chat-box">
+        <input placeholder="Message AI Producer...">
+        <button onclick="alert('This is a visual prototype — chat is not wired to a model yet.')">Send</button>
+      </div>
+    </div>
+    <div class="glass rp-block">
+      <h3>Pinned Projects</h3>
+      <div class="rp-notif"><span>The Future Within — Documentary</span></div>
+      <div class="rp-notif"><span>Echoes of Tomorrow — YouTube Series</span></div>
+    </div>
+    <div class="glass rp-block" style="text-align:center;">
+      <h3>System Health</h3>
+      <div class="health-ring">100%</div>
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;">All Systems Operational</div>
+    </div>
+  </div>
+
+  <!-- MY PROFILE VIEW -->
+  <div class="profile-view" id="profileView">
+    <span class="profile-back" onclick="showDashboard()">&larr; Back to Mission Control</span>
+
+    <div class="profile-banner">
+      <div class="avatar-xl" id="profileAvatarXl">A</div>
+      <div class="profile-id">
+        <h1 id="profileNameXl">—</h1>
+        <p id="profileRoleXl">—</p>
+      </div>
+    </div>
+
+    <div class="profile-tabs">
+      <div class="profile-tab active" data-ptab="details" onclick="switchProfileTab('details')">Details</div>
+      <div class="profile-tab" data-ptab="credentials" onclick="switchProfileTab('credentials')">Credentials</div>
+    </div>
+
+    <div class="profile-panel active" id="ptab-details">
+      <div class="form-row">
+        <label>Display Name</label>
+        <input type="text" id="profileNameInput">
+      </div>
+      <div class="form-row">
+        <label>Role</label>
+        <select id="profileRoleInput">
+          <option>Producer</option>
+          <option>Editor</option>
+          <option>Director</option>
+          <option>Reviewer</option>
+        </select>
+      </div>
+      <button class="save-btn" onclick="saveProfileDetails()">Save Changes</button>
+      <span class="save-msg" id="detailsSaveMsg">Saved ✓</span>
+    </div>
+
+    <div class="profile-panel" id="ptab-credentials">
+      <div class="form-row">
+        <label>Email</label>
+        <input type="email" id="profileEmail" placeholder="you@example.com">
+      </div>
+      <div class="form-row">
+        <label>New Password</label>
+        <input type="password" id="profilePassword" placeholder="Leave blank to keep current">
+      </div>
+      <div class="form-row">
+        <label>Confirm Password</label>
+        <input type="password" id="profilePasswordConfirm" placeholder="Repeat new password">
+      </div>
+      <div class="form-hint">This is a visual prototype — credentials aren't sent anywhere yet.</div>
+      <button class="save-btn" onclick="saveProfileCredentials()">Save Credentials</button>
+      <span class="save-msg" id="credsSaveMsg">Saved ✓</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ===== Mission data =====
+  const missions = [
+    { id: 1, title: "Brand Launch Film", sub: "OpenMontage · Cinematic", status: "live", statusLabel: "LIVE", progress: 72, agent: "Producer Agent — Scene 4 of 6" },
+    { id: 2, title: "Q3 Investor Reel", sub: "OpenMontage · Corporate", status: "render", statusLabel: "RENDERING", progress: 45, agent: "Render Engine — 45% complete" },
+    { id: 3, title: "Women in Film Doc", sub: "OpenMontage · Documentary", status: "review", statusLabel: "REVIEW", progress: 90, agent: "Awaiting human approval" },
+    { id: 4, title: "Product Teaser v2", sub: "OpenMontage · Short-form", status: "live", statusLabel: "LIVE", progress: 30, agent: "Producer Agent — Scene 1 of 4" },
+  ];
+
+  let selectedId = null;
+
+  function renderMissions(list) {
+    const grid = document.getElementById("missionGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    const countEl = document.getElementById("missionCount");
+    if (countEl) countEl.textContent = `${list.length} missions in production`;
+
+    list.forEach(m => {
+      const card = document.createElement("div");
+      card.className = "mission-card" + (m.id === selectedId ? " selected" : "");
+      card.innerHTML = `
+        <div class="mission-card-top">
+          <div>
+            <div class="mission-title">${m.title}</div>
+            <div class="mission-sub">${m.sub}</div>
+          </div>
+          <span class="status-pill status-${m.status}">${m.statusLabel}</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" style="width:${m.progress}%"></div>
+        </div>
+      `;
+      card.addEventListener("click", () => selectMission(m.id));
+      grid.appendChild(card);
+    });
+  }
+
+  function selectMission(id) {
+    selectedId = id;
+    const m = missions.find(x => x.id === id);
+    const panel = document.getElementById("detailPanel");
+    if (!panel) return;
+
+    panel.innerHTML = `
+      <h2>${m.title}</h2>
+      <div class="detail-sub">${m.sub}</div>
+
+      <div class="telemetry-row"><span>Status</span><span class="telemetry-value">${m.statusLabel}</span></div>
+      <div class="telemetry-row"><span>Progress</span><span class="telemetry-value">${m.progress}%</span></div>
+      <div class="telemetry-row"><span>Render Queue</span><span class="telemetry-value" id="queueVal">3</span></div>
+      <div class="telemetry-row"><span>Est. Completion</span><span class="telemetry-value" id="etaVal">--</span></div>
+
+      <div class="agent-pulse"><span class="pulse-dot"></span> ${m.agent}</div>
+    `;
+
+    renderMissions(filterMissionsList(document.getElementById("missionSearch") ? document.getElementById("missionSearch").value : ""));
+    animateTelemetry();
+  }
+
+  function animateTelemetry() {
+    const eta = document.getElementById("etaVal");
+    if (!eta) return;
+    const minutes = Math.floor(Math.random() * 40) + 5;
+    eta.textContent = `${minutes} min`;
+  }
+
+  function filterMissionsList(query) {
+    query = (query || "").toLowerCase();
+    return missions.filter(m =>
+      m.title.toLowerCase().includes(query) || m.sub.toLowerCase().includes(query)
+    );
+  }
+
+  // ===== STEP 1 -> STEP 2: Login =====
+  let pendingName = "";
+  function loginUser() {
+    const name = document.getElementById("userName").value;
+    const pass = document.getElementById("userPass").value;
+    if (name.trim() === "" || pass.trim() === "") { alert("Please enter name and password"); return; }
+    if (pass !== "xini8") { alert("Incorrect password"); return; }
+
+    pendingName = name.trim();
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("workspaceScreen").style.display = "flex";
+  }
+
+  // ===== Workspace picker (Step 2) =====
+  let selectedWorkspace = "XINI8 Studios";
+  function pickWorkspace(el) {
+    document.querySelectorAll(".workspace-option").forEach(o => o.classList.remove("selected"));
+    el.classList.add("selected");
+    selectedWorkspace = el.querySelector(".ws-name").textContent;
+  }
+
+  function enterWorkspace() {
+    document.getElementById("workspaceScreen").style.display = "none";
+    document.getElementById("profileScreen").style.display = "flex";
+  }
+
+  // ===== Avatar picker (Step 3) =====
+  let selectedAvatarColor = "linear-gradient(135deg,#20946E,#055D51)";
+  let selectedAvatarLetter = "A";
+  function pickAvatar(el) {
+    document.querySelectorAll(".avatar-option").forEach(o => o.classList.remove("selected"));
+    el.classList.add("selected");
+    selectedAvatarColor = el.dataset.color;
+    selectedAvatarLetter = el.dataset.letter;
+  }
+
+  // ===== Role select pop animation =====
+  function roleChanged(el) {
+    el.classList.remove("role-pop");
+    void el.offsetWidth;
+    el.classList.add("role-pop");
+  }
+
+  // ===== STEP 3 -> Dashboard: Complete profile =====
+  let userProfile = { name: "", role: "", email: "", avatarColor: "", avatarLetter: "", workspace: "" };
+
+  function completeProfile() {
+    const role = document.getElementById("userRole").value;
+
+    userProfile.name = pendingName;
+    userProfile.role = role;
+    userProfile.avatarColor = selectedAvatarColor;
+    userProfile.avatarLetter = selectedAvatarLetter;
+    userProfile.workspace = selectedWorkspace;
+
+    applyProfileToUI();
+
+    document.getElementById("profileScreen").style.display = "none";
+    document.getElementById("mainApp").style.display = "grid";
+
+    initDashboard();
+  }
+
+  function applyProfileToUI() {
+    document.getElementById("footerName").textContent = userProfile.name;
+    document.getElementById("footerRole").textContent = userProfile.role;
+    const footerAvatar = document.getElementById("footerAvatar");
+    footerAvatar.textContent = userProfile.avatarLetter;
+    footerAvatar.style.background = userProfile.avatarColor;
+
+
+    document.getElementById("profileNameXl").textContent = userProfile.name;
+    document.getElementById("profileRoleXl").textContent = userProfile.role;
+    const bigAvatar = document.getElementById("profileAvatarXl");
+    bigAvatar.textContent = userProfile.avatarLetter;
+    bigAvatar.style.background = userProfile.avatarColor;
+
+    document.getElementById("profileNameInput").value = userProfile.name;
+    document.getElementById("profileRoleInput").value = userProfile.role;
+    document.getElementById("profileEmail").value = userProfile.email;
+  }
+
+  // ===== My Profile page navigation =====
+  function showProfile() {
+    document.querySelector(".os-app").classList.add("showing-profile");
+    document.getElementById("profileView").classList.add("active");
+  }
+  function showDashboard() {
+    document.querySelector(".os-app").classList.remove("showing-profile");
+    document.getElementById("profileView").classList.remove("active");
+  }
+  function switchProfileTab(name) {
+    document.querySelectorAll(".profile-tab").forEach(t => t.classList.toggle("active", t.dataset.ptab === name));
+    document.querySelectorAll(".profile-panel").forEach(p => p.classList.toggle("active", p.id === "ptab-" + name));
+  }
+  function saveProfileDetails() {
+    userProfile.name = document.getElementById("profileNameInput").value.trim() || userProfile.name;
+    userProfile.role = document.getElementById("profileRoleInput").value;
+    userProfile.avatarLetter = userProfile.name.charAt(0).toUpperCase();
+    applyProfileToUI();
+    flashSaved("detailsSaveMsg");
+  }
+  function saveProfileCredentials() {
+    const pass = document.getElementById("profilePassword").value;
+    const confirm = document.getElementById("profilePasswordConfirm").value;
+    if (pass !== confirm) { alert("Passwords don't match"); return; }
+    userProfile.email = document.getElementById("profileEmail").value.trim();
+    flashSaved("credsSaveMsg");
+  }
+  function flashSaved(id) {
+    const el = document.getElementById(id);
+    el.style.display = "inline";
+    setTimeout(() => { el.style.display = "none"; }, 2000);
+  }
+
+  // ============================================================
+  // ===================  OS DASHBOARD LOGIC  ===================
+  // ============================================================
+  const navSections = [
+    { label: "Missions", items: ["Mission Dashboard", "Launch Mission", "Active Missions", "Mission Timeline", "Completed Missions", "Templates", "Mission Archive"] },
+    { label: "AI Agents", items: ["Agent Center", "Running Agents", "Agent Teams", "Agent Builder", "Agent Memory", "Agent Marketplace", "Agent Logs"] },
+    { label: "AI Models", items: ["Model Manager", "Connected Models", "Model Router", "Cost Optimizer", "Performance Analytics"] },
+    { label: "Knowledge", items: ["Knowledge Vault", "Notes", "Projects", "Research", "Customers", "Meetings", "Ideas", "Documents", "Knowledge Graph", "Semantic Search", "Memory Timeline"] },
+    { label: "Workflows", items: ["Workflow Builder", "Workflow Templates", "Automation", "Triggers", "Scheduler", "Execution History", "API Calls"] },
+    { label: "Creative Studio", items: ["Content Studio", "Script Studio", "Storyboard", "Image Studio", "Voice Studio", "Music Studio", "Video Studio", "Prompt Library", "Assets"] },
+    { label: "Business", items: ["CRM", "Sales", "Marketing", "SEO", "Ads", "Email", "Finance", "HR", "Legal", "Support", "Analytics"] },
+    { label: "Development", items: ["Repositories", "API Explorer", "Database", "Supabase", "Firebase", "Docker", "Kubernetes", "Deployment", "Monitoring", "Logs"] },
+    { label: "Integrations", items: ["GitHub", "Slack", "Discord", "Google Drive", "Google Docs", "Notion", "WordPress", "Shopify", "Stripe", "Zapier", "n8n", "Figma"] },
+    { label: "Administration", items: ["Users", "Roles", "Permissions", "Organizations", "Billing", "Subscription", "API Keys", "Audit Logs", "Security", "Settings"] },
+    { label: "Dashboard", items: ["Overview"] }
+  ];
+
+  function initDashboard() {
+    renderSidebar();
+    showModule("Overview");
+    updateClock();
+    setInterval(updateClock, 1000);
+  }
+
+  function renderSidebar() {
+    const sb = document.getElementById("osSidebar");
+    sb.innerHTML = navSections.map((sec, si) => `
+      <div class="nav-group" id="navgroup-${si}">
+        <div class="nav-group-label" onclick="toggleGroup(${si})">
+          <span>${sec.label}</span><span class="chev">▾</span>
+        </div>
+        <div class="nav-items">
+          ${sec.items.map(it => `<div class="nav-item" data-item="${it}" onclick="showModule('${it.replace(/'/g, "\\'")}')">${it}</div>`).join("")}
+        </div>
+      </div>
+    `).join("");
+  }
+
+  function toggleGroup(i) {
+    document.getElementById(`navgroup-${i}`).classList.toggle("collapsed");
+  }
+
+  function setActiveNavItem(name) {
+    document.querySelectorAll(".nav-item").forEach(el => {
+      el.classList.toggle("active", el.dataset.item === name);
+    });
+  }
+
+  function showModule(name) {
+    setActiveNavItem(name);
+    const content = document.getElementById("osContent");
+
+    if (name === "Overview") { content.innerHTML = overviewTemplate(); afterOverviewRender(); return; }
+    if (name === "Mission Dashboard") { content.innerHTML = missionDashboardTemplate(); renderMissions(missions); return; }
+
+    content.innerHTML = stubTemplate(name);
+  }
+
+  function stubTemplate(name) {
+    return `
+      <div class="glass module-stub">
+        <h2>${name}</h2>
+        <p>This module's layout is wired into the sidebar and ready for its real data source — connect it whenever you're ready.</p>
+      </div>
+    `;
+  }
+
+  function missionDashboardTemplate() {
+    return `
+      <div class="mission-module">
+        <div class="mission-main">
+          <div class="main-header">
+            <div>
+              <h1>Active Missions</h1>
+              <p id="missionCount">4 missions in production</p>
+            </div>
+            <input class="search" id="missionSearch" placeholder="Search missions..." oninput="renderMissions(filterMissionsList(this.value))">
+          </div>
+          <div class="mission-grid" id="missionGrid"></div>
+        </div>
+        <div class="detail" id="detailPanel">
+          <div class="empty-state">Select a mission to view telemetry</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function overviewTemplate() {
+    return `
+      <div class="kpi-row">
+        <div class="glass kpi-card"><div class="kpi-label">Active Missions</div><div class="kpi-value">3</div><div class="kpi-delta">▲ 20% from yesterday</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Agents Online</div><div class="kpi-value">8/10</div><div class="kpi-delta">Online now</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Render Queue</div><div class="kpi-value">2</div><div class="kpi-delta" style="color:var(--warning);">Jobs in progress</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Storage Used</div><div class="kpi-value">2.4 TB</div><div class="kpi-delta" style="color:var(--text-secondary);">of 10 TB</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Productions Completed</div><div class="kpi-value">127</div><div class="kpi-delta">▲ 18% from last week</div></div>
+      </div>
+
+      <div>
+        <div class="section-title">Mission Overview</div>
+        <div class="status-grid" style="margin-top:8px;">
+          <div class="glass status-card"><div class="sc-value">3</div><div class="sc-label">Running</div></div>
+          <div class="glass status-card"><div class="sc-value">2</div><div class="sc-label">Queued</div></div>
+          <div class="glass status-card"><div class="sc-value">127</div><div class="sc-label">Completed</div></div>
+          <div class="glass status-card"><div class="sc-value">0</div><div class="sc-label">Failed</div></div>
+          <div class="glass status-card"><div class="sc-value">4</div><div class="sc-label">Drafts</div></div>
+        </div>
+      </div>
+
+      <div class="glass pad">
+        <div class="section-title" style="margin-bottom:10px;">Live Agent Activity</div>
+        <table class="agent-table">
+          <tr><th>Agent</th><th>Task</th><th>Model</th><th>Progress</th><th>Status</th></tr>
+          <tr><td>Research Agent</td><td>Found 128 relevant sources</td><td>Claude</td><td><span class="mini-bar-track"><span class="mini-bar-fill" style="width:100%"></span></span></td><td style="color:var(--success);">Complete</td></tr>
+          <tr><td>Script Analyst</td><td>Crafting Scene 7 (2,143 words)</td><td>Claude</td><td><span class="mini-bar-track"><span class="mini-bar-fill" style="width:82%"></span></span></td><td style="color:var(--success);">Active</td></tr>
+          <tr><td>Visual Creator</td><td>Creating concept artwork</td><td>OpenMontage</td><td><span class="mini-bar-track"><span class="mini-bar-fill" style="width:45%"></span></span></td><td style="color:var(--success);">Active</td></tr>
+          <tr><td>Render Engine</td><td>Rendering 1080p preview</td><td>OpenMontage</td><td><span class="mini-bar-track"><span class="mini-bar-fill" style="width:35%"></span></span></td><td style="color:var(--warning);">Rendering</td></tr>
+        </table>
+      </div>
+
+      <div class="two-col">
+        <div class="glass pad">
+          <div class="section-title" style="margin-bottom:10px;">Knowledge Dashboard</div>
+          <div class="status-grid" style="grid-template-columns:repeat(3,1fr);">
+            <div class="status-card"><div class="sc-value">12,845</div><div class="sc-label">Documents</div></div>
+            <div class="status-card"><div class="sc-value">338</div><div class="sc-label">Notes</div></div>
+            <div class="status-card"><div class="sc-value">67</div><div class="sc-label">Projects</div></div>
+          </div>
+        </div>
+        <div class="glass pad">
+          <div class="section-title" style="margin-bottom:10px;">Model Router</div>
+          <table class="data-table">
+            <tr><th>Model</th><th>Cost</th><th>Latency</th><th>Health</th></tr>
+            <tr><td>Claude</td><td>$0.014/req</td><td>820ms</td><td style="color:var(--success);">Healthy</td></tr>
+            <tr><td>OpenMontage</td><td>$0.031/req</td><td>1.4s</td><td style="color:var(--success);">Healthy</td></tr>
+            <tr><td>OpenRouter</td><td>$0.009/req</td><td>640ms</td><td style="color:var(--success);">Healthy</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="glass pad">
+          <div class="section-title" style="margin-bottom:10px;">Recent Projects</div>
+          <table class="data-table">
+            <tr><th>Project</th><th>Status</th><th>Completion</th></tr>
+            <tr><td>The Future Within</td><td style="color:var(--success);">In Progress</td><td>82%</td></tr>
+            <tr><td>Echoes of Tomorrow</td><td style="color:var(--warning);">Rendering</td><td>65%</td></tr>
+            <tr><td>AI Revolution</td><td>Script</td><td>45%</td></tr>
+          </table>
+        </div>
+        <div class="glass pad">
+          <div class="section-title" style="margin-bottom:10px;">Analytics</div>
+          <div class="status-grid" style="grid-template-columns:repeat(2,1fr);">
+            <div class="status-card"><div class="sc-value">96%</div><div class="sc-label">Mission Success</div></div>
+            <div class="status-card"><div class="sc-value">2,481</div><div class="sc-label">API Calls Today</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass pad">
+        <div class="section-title" style="margin-bottom:10px;">Quick Actions</div>
+        <div class="quick-actions">
+          <div class="glass qa-btn" onclick="showModule('Launch Mission')">+ Launch Mission</div>
+          <div class="glass qa-btn" onclick="showModule('Agent Builder')">+ Create Agent</div>
+          <div class="glass qa-btn" onclick="showModule('Knowledge Vault')">+ Import Knowledge</div>
+          <div class="glass qa-btn" onclick="showModule('Workflow Builder')">+ New Workflow</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function afterOverviewRender() { /* reserved for future live-data hooks */ }
+
+  function globalSearchHandler(q) {
+    // Lightweight global search: jumps to Mission Dashboard and filters if it matches a mission
+    if (!q) return;
+  }
+
+  function toggleNotifDropdown(e) {
+    e.stopPropagation();
+    document.getElementById("notifDropdown").classList.toggle("open");
+  }
+  document.addEventListener("click", () => {
+    const d = document.getElementById("notifDropdown");
+    if (d) d.classList.remove("open");
+  });
+
+  function updateClock() {
+    const el = document.getElementById("sbTime");
+    if (!el) return;
+    el.textContent = new Date().toLocaleTimeString();
+  }
+</script>
+
+</body>
+</html>
